@@ -1,32 +1,19 @@
 # pdf_gerador3.py
 
-import matplotlib
-matplotlib.use('Agg')  # Define o backend para 'Agg' antes de importar pyplot
-
-import pandas as pd
 import yfinance as yf
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
-import numpy as np
-import itertools
-from scipy.stats import zscore
+import logging
 from datetime import datetime
 import warnings
-import matplotlib.colors as mcolors
-import logging
 
-# Suprimir avisos desnecessários
 warnings.filterwarnings('ignore')
 
-def gerar_pdf(output_file="Regressão_Pares_Ativos.pdf"):
-    plt.style.use('ggplot')
-    
-    # Configurar o logging para facilitar o debug
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+# Configurar o logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-    # Descrição amigável dos ativos
+def gerar_pdf_variacao_diaria(output_file="Variação_Diária.pdf"):
     ativos_descricao = {
         'USDBRL=X': 'USD/BRL',
         'USDMXN=X': 'USD/MXN',
@@ -58,294 +45,85 @@ def gerar_pdf(output_file="Regressão_Pares_Ativos.pdf"):
         'HG=F': 'Cobre (Copper)',
         'ZC=F': 'Milho (Corn)',
         'TIO=F': 'Minério de Ferro'
-        # '000001.SS' removido anteriormente
     }
 
-    # Definir lista completa de tickers sem '000001.SS'
     tickers = [
         'USDBRL=X', 'USDMXN=X', '^BVSP', 'VALE3.SA', 'PETR4.SA', 'ITUB4.SA', 'BBDC4.SA', 
         'ABEV3.SA', 'WEGE3.SA', 'SMAL11.SA', 'USDJPY=X', '^TNX', '^GSPC', '^STOXX50E', 
         '^N225', '^GDAXI', '^FTSE', 'USDEUR=X', 'USDGBP=X', 'USDAUD=X', 'USDCAD=X', 
         'USDCHF=X', 'USDCNY=X', '^HSI', '^AORD', '^MXX', 'GC=F', 'CL=F', 'SI=F', 
         'HG=F', 'ZC=F', 'TIO=F'
-        # '000001.SS' removido
     ]
 
+    # Categorias de ativos
     bolsas = ['^BVSP', '^GSPC', '^STOXX50E', '^N225', '^GDAXI', '^FTSE', '^HSI', '^AORD', '^MXX']
     moedas = ['USDBRL=X', 'USDMXN=X', 'USDJPY=X', 'USDEUR=X', 'USDGBP=X', 'USDCAD=X']
     commodities = ['GC=F', 'CL=F', 'SI=F', 'HG=F', 'ZC=F', 'TIO=F']
-    t10 = '^TNX'
-    ibov = '^BVSP'
 
-    # Estrutura os pares para regressão
-    regression_pairs = (
-        [(moeda, 'USDBRL=X') for moeda in moedas if moeda != 'USDBRL=X'] + 
-        [('^BVSP', bolsa) for bolsa in bolsas if bolsa != '^BVSP'] + 
-        [(t10, bolsa) for bolsa in bolsas] + 
-        [(t10, moeda) for moeda in moedas] + 
-        [(commodity1, commodity2) for commodity1, commodity2 in itertools.combinations(commodities, 2)] + 
-        [(ibov, commodity) for commodity in commodities] + 
-        [('^BVSP', 'USDBRL=X')]  # Incluindo o par específico para USD/BRL e Bovespa
-    )
-
-    def load_data(tickers, start_date, end_date):
-        logging.info(f"Baixando dados de {len(tickers)} tickers de {start_date} até {end_date}...")
-        
-        # Baixa todos os tickers de uma vez
+    def calcular_variacao(tickers, periodo='5d'):
         try:
-            data = yf.download(tickers, start=start_date, end=end_date, progress=False, group_by='ticker', threads=True)
+            # Baixar os dados
+            dados = yf.download(tickers, period=periodo, interval='1d')['Close']
+            # Verificar se há pelo menos duas linhas de dados
+            if dados.shape[0] < 2:
+                logging.warning(f"Não há dados suficientes para os tickers: {tickers}")
+                return pd.Series(dtype=float)
+            
+            # Calcular variação
+            variacao = (dados.iloc[-1] - dados.iloc[-2]) / dados.iloc[-2] * 100
+            variacao = variacao.dropna()
+
+            # Logar os tickers com dados válidos e os que foram ignorados
+            logging.info(f"Tickers com dados válidos: {list(variacao.index)}")
+            tickers_ignorados = set(tickers) - set(variacao.index)
+            if tickers_ignorados:
+                logging.warning(f"Tickers sem dados ou ignorados: {tickers_ignorados}")
+
+            return variacao
         except Exception as e:
-            logging.error(f"Erro ao baixar dados: {e}")
-            return None, tickers  # Retorna todos os tickers como falhos
-        
-        successful_tickers = []
-        failed_tickers = []
-        close_data = {}
-        
-        # Processa os dados retornados
-        for ticker in tickers:
-            try:
-                if len(tickers) == 1:
-                    # Caso haja apenas um ticker, a estrutura dos dados é diferente
-                    temp_close = data['Close']
-                else:
-                    temp_close = data[ticker]['Close']
-                
-                if temp_close.isnull().all():
-                    failed_tickers.append(ticker)
-                    logging.warning(f"Sem dados válidos para {ticker}.")
-                else:
-                    close_data[ticker] = temp_close
-                    successful_tickers.append(ticker)
-                    logging.info(f"Sucesso: {ticker} - {temp_close.count()} registros.")
-            except KeyError:
-                failed_tickers.append(ticker)
-                logging.warning(f"Sem dados para {ticker}.")
-        
-        if not close_data:
-            raise ValueError("Nenhum ativo retornou dados válidos.")
-        
-        # Cria o DataFrame alinhando os índices
-        df = pd.DataFrame(close_data)
-        df = df.dropna(how='all')  # Remove linhas onde todos os valores são NaN
-        
-        logging.info(f"Total de tickers com dados válidos: {len(successful_tickers)}")
-        logging.info(f"Tickers sem dados ou com erro: {len(failed_tickers)}")
-        logging.info(f"Tickers sem dados: {failed_tickers}\n")
-        
-        return df, failed_tickers
+            logging.error(f"Erro ao baixar dados para os tickers {tickers}: {e}")
+            return pd.Series(dtype=float)
 
-    # Função para realizar a regressão linear e calcular R²
-    def perform_regression(df, x_column, y_column, N=600):
-        pair_df = df[[x_column, y_column]].dropna()
-        if pair_df.empty:
-            logging.warning(f"Sem dados para regressão entre {x_column} e {y_column}.")
-            return None, None, None
-        
-        pair_df = pair_df.sort_index()
-        if len(pair_df) > N:
-            pair_df = pair_df.iloc[-N:]
-        
-        X = pair_df[[x_column]].values
-        Y = pair_df[y_column].values
-        
-        linear_model = LinearRegression()
-        linear_model.fit(X, Y)
-        y_pred = linear_model.predict(X)
-        r2 = r2_score(Y, y_pred)
-        
-        pair_df['residual'] = Y - y_pred
-        pair_df['residual_standardized'] = zscore(pair_df['residual'])
-        
-        return linear_model, r2, pair_df
+    def plotar_variacao(variacao, titulo, ax):
+        ativos = variacao.index
+        valores = variacao.values
 
-    # Função para criar gráficos e salvar no PDF
-    def plot_results_to_pdf(pdf, df, x_column, y_column, r2):
-        residuals_standardized = df['residual_standardized']
-        std_residuals = np.std(residuals_standardized)
+        if variacao.empty:
+            ax.text(0.5, 0.5, 'Nenhum dado disponível.', 
+                    horizontalalignment='center', verticalalignment='center', 
+                    fontsize=12, color='red')
+            ax.axis('off')
+        else:
+            descricao = [ativos_descricao.get(ticker, ticker) for ticker in ativos]
+            ax.bar(descricao, valores, color=['green' if v > 0 else 'red' for v in valores])
+            ax.axhline(0, color='black', linestyle='--', linewidth=0.8)
         
-        plt.figure(figsize=(12, 6))
-        
-        plt.plot(df.index, residuals_standardized, label='Resíduo Padronizado', color='blue', linewidth=1.5)
-        plt.fill_between(df.index, -1.5 * std_residuals, 1.5 * std_residuals, 
-                        color='lightcoral' if r2 < 0.1 else 'lightgreen', alpha=0.3, label='Intervalo de 1.5dp')
-        plt.axhline(0, color='red', linestyle='--', linewidth=1.5)
-        
-        title_color = 'red' if r2 < 0.1 else 'black'
-        plt.title(f'{ativos_descricao.get(y_column, y_column)} vs {ativos_descricao.get(x_column, x_column)}', 
-                fontsize=16, weight='bold', color=title_color)
-        plt.suptitle(f'Resíduo da Regressão de {ativos_descricao.get(y_column, y_column)} sendo explicado por {ativos_descricao.get(x_column, x_column)}\n'
-                f'R² = {r2:.4f}, Amostra = {len(df)} dias, Última Data = {df.index[-1].strftime("%Y-%m-%d")}', 
-                fontsize=12)
-        
-        plt.xlabel('Data')
-        plt.ylabel('Resíduo Padronizado (%)')
-        plt.legend(loc='upper right', fontsize=8)
-        
-        y_min, y_max = residuals_standardized.min(), residuals_standardized.max()
-        plt.ylim(y_min - 0.5, y_max + 0.5)
-        
-        plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-        plt.xticks(rotation=45)
+        ax.set_title(titulo, fontsize=14)
+        ax.set_ylabel('Variação (%)', fontsize=12)
+        ax.tick_params(axis='x', rotation=45, labelsize=10)
+
+    # Calcular variação
+    variacao_moedas = calcular_variacao(moedas, periodo='5d')
+    variacao_bolsas = calcular_variacao(bolsas, periodo='5d')
+    variacao_commodities = calcular_variacao(commodities, periodo='5d')
+
+    # Gerar gráficos e salvar no PDF
+    with PdfPages(output_file) as pdf:
+        fig, axs = plt.subplots(3, 1, figsize=(12, 18))
+
+        plotar_variacao(variacao_moedas, 'Variação Diária - Moedas', axs[0])
+        plotar_variacao(variacao_bolsas, 'Variação Diária - Bolsas', axs[1])
+        plotar_variacao(variacao_commodities, 'Variação Diária - Commodities', axs[2])
+
         plt.tight_layout()
-        
-        plt.annotate("FIM J&F Disciplina / Mesa Quant - Eduardo Zeidan", 
-                    xy=(1, 0), xycoords='axes fraction', fontsize=8, color='gray', ha='right', va='bottom')
-        
-        pdf.savefig()
-        plt.close()
+        pdf.savefig(fig)
+        plt.close(fig)
 
-    def add_grid_table_with_gradient_to_pdf(pdf, residuals_table):
-        # Ordenar a tabela por 'Resíduo Mais Recente' para melhor visualização
-        residuals_table = residuals_table.sort_values('Resíduo Mais Recente')
-        
-        # Criar a figura e o eixo principal
-        fig, ax = plt.subplots(figsize=(12, 8))  # Reduzir o tamanho da figura
-        ax.axis('off')
-        
-        # Definir o gradiente de azul claro para branco e amarelo
-        cmap = mcolors.LinearSegmentedColormap.from_list("blue_white_yellow", ["#add8e6", "white", "#ffff00"])
-        norm = plt.Normalize(residuals_table['Resíduo Mais Recente'].min(), residuals_table['Resíduo Mais Recente'].max())
-        
-        # Ajustar o número de colunas e linhas para uma tabela mais compacta
-        num_cols = 5
-        num_rows = (len(residuals_table) + num_cols - 1) // num_cols
-        
-        block_width = 0.7  # Reduzir a largura dos blocos
-        block_height = 0.7  # Reduzir a altura dos blocos
-        
-        for idx, (i, j) in enumerate(itertools.product(range(num_rows), range(num_cols))):
-            if idx < len(residuals_table):
-                pair = residuals_table.iloc[idx]
-                pair_name = pair['Comparação']
-                pair_residual = pair['Resíduo Mais Recente']
-                color = cmap(norm(pair_residual))
-                
-                y_pos = (num_rows - 1 - i) * block_height  # Posicionar de cima para baixo
-                
-                # Desenhar o retângulo
-                ax.add_patch(plt.Rectangle((j * block_width, y_pos), block_width, block_height, 
-                                        color=color, linewidth=1, edgecolor='black'))
-                
-                # Ajustar a cor do texto para garantir legibilidade
-                text_color = 'black' 
-                
-                # Adicionar o nome do par de ativos
-                ax.text(j * block_width + block_width / 2, y_pos + block_height * 0.6, pair_name, 
-                        ha='center', va='center', fontsize=6, color=text_color, fontweight='bold', wrap=True)
-                
-                # Adicionar o valor do resíduo
-                ax.text(j * block_width + block_width / 2, y_pos + block_height * 0.3, f"{pair_residual:.2f}", 
-                        ha='center', va='center', fontsize=8, color=text_color, fontweight='bold')
-        
-        # Ajustar os limites do gráfico
-        plt.xlim(0, num_cols * block_width)
-        plt.ylim(0, num_rows * block_height)
-        plt.tight_layout()
+    logging.info(f'PDF gerado com sucesso: {output_file}')
 
-        # Adicionar o título fora do gráfico, na parte superior branca, com mais espaço entre o título e a tabela
-        fig.text(0.5, 0.98, "Destaques diários | 15 maiores & 15 menores resíduos", 
-                ha='center', va='top', fontsize=12, fontweight='bold')
+if __name__ == "__main__":
+    gerar_pdf_variacao_diaria()
 
-        # Adicionar a assinatura no canto inferior direito
-        fig.text(0.99, 0.01, "FIM J&F Disciplina / Mesa Quant - Eduardo Zeidan", 
-                ha='right', va='center', fontsize=9, color='gray')
-
-        # Salvar o gráfico e a assinatura no PDF
-        pdf.savefig()
-        plt.close()
-
-    # Função principal para gerar o PDF
-    def main():
-        nonlocal tickers  # Permite modificar a variável 'tickers' definida no escopo externo
-
-        # Definir intervalo de datas para regressão
-        end_date = datetime.today() - pd.DateOffset(days=1)  # Define end_date para ontem
-        start_date = end_date - pd.DateOffset(years=1)
-
-        logging.info(f"Intervalo de datas: {start_date.strftime('%Y-%m-%d')} até {end_date.strftime('%Y-%m-%d')}\n")
-
-        # Carregar os dados
-        try:
-            df, failed_tickers = load_data(tickers, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
-        except ValueError as ve:
-            logging.error(f"[Erro] {ve}")
-            # Opcional: Remova tickers problemáticos ou ajuste a lista conforme necessário
-            # Por exemplo, remover 'TIO=F' se persistir o erro
-            problematic_tickers = ['TIO=F']  # Adicione outros tickers problemáticos aqui
-            for ticker in problematic_tickers:
-                if ticker in tickers:
-                    tickers.remove(ticker)
-                    logging.info(f"Removido ticker problemático: {ticker}")
-            # Recarregar os dados com a lista ajustada
-            df, failed_tickers = load_data(tickers, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
-
-        # Remover todos os tickers que falharam
-        if failed_tickers:
-            logging.info("Removendo tickers que falharam no download: %s", failed_tickers)
-            tickers = [ticker for ticker in tickers if ticker not in failed_tickers]
-            df, _ = load_data(tickers, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
-
-        pdf_filename = output_file
-
-        pair_results = []
-        N = 756  # Número máximo de dias para a regressão
-
-        logging.info("\nIniciando regressões...\n")
-
-        for ticker1, ticker2 in regression_pairs:
-            if ticker1 not in df.columns or ticker2 not in df.columns:
-                logging.warning(f"Pular par ({ticker1}, {ticker2}) pois um dos tickers não possui dados.")
-                continue
-            
-            model, r2, df_res = perform_regression(df, ticker1, ticker2, N=N)
-            
-            if df_res is None:
-                continue
-
-            pair_results.append({
-                'ticker1': ticker1,
-                'ticker2': ticker2,
-                'df_res': df_res,
-                'r2': r2
-            })
-
-        # Verificar se há resultados de regressão
-        if not pair_results:
-            raise ValueError("Nenhum par de regressão foi processado com sucesso.")
-
-        # Criar a tabela de resíduos
-        residuals_table = pd.DataFrame({
-            'Comparação': [
-                f"{ativos_descricao.get(result['ticker2'], result['ticker2'])} vs {ativos_descricao.get(result['ticker1'], result['ticker1'])}"
-                for result in pair_results
-            ],
-            'Resíduo Mais Recente': [round(result['df_res']['residual_standardized'].iloc[-1], 2) for result in pair_results]
-        })
-
-        # Selecionar os 15 maiores e 15 menores resíduos
-        top_maiores = residuals_table.nlargest(15, 'Resíduo Mais Recente')
-        top_menores = residuals_table.nsmallest(15, 'Resíduo Mais Recente')
-        top_residuos = pd.concat([top_maiores, top_menores])
-
-        # Gerar o PDF
-        with PdfPages(pdf_filename) as pdf:
-            # Adicionar a tabela de resíduos com gradiente
-            add_grid_table_with_gradient_to_pdf(pdf, top_residuos)
-            
-            # Adicionar os gráficos de resíduos para cada par
-            for result in pair_results:
-                ticker1 = result['ticker1']
-                ticker2 = result['ticker2']
-                df_res = result['df_res']
-                r2 = result['r2']
-
-                plot_results_to_pdf(pdf, df_res, ticker1, ticker2, r2)
-
-        logging.info(f"\nPDF gerado com sucesso: {pdf_filename}")
-
-        # Retornar o caminho do PDF gerado
-        return pdf_filename
 
     # Executar a função principal e retornar o caminho do PDF
     return main()
