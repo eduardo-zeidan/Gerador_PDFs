@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Gráficos de Variações</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css">
+    <style>
+        .grafico {
+            margin-bottom: 50px;
+            text-align: center;
+        }
+        .grafico img {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="text-center">Gráficos de Variações dos Ativos</h2>
+        <div class="text-center mb-4">
+            <a href="/download-pdf" class="btn btn-success mr-2">Baixar PDF</a>
+            <a href="/" class="btn btn-secondary">Voltar</a>
+        </div>
+        {% for imagem in imagens %}
+            <div class="grafico">
+                <img src="data:image/png;base64,{{ imagem }}" class="img-fluid" alt="Gráfico de Variação">
+            </div>
+        {% endfor %}
+    </div>
+</body>
+</html>
