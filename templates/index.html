@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerador de PDFs</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container text-center mt-5">
+        <h1 class="mb-4">Gerador de PDFs</h1>
+        <p class="mb-3">Escolha um dos botões abaixo para gerar o relatório correspondente:</p>
+        
+        <div class="d-flex flex-column align-items-center">
+            <a href="/gerar_pdf1" class="btn btn-primary btn-lg mb-3" role="button">Gerar PDF 1 - Análise de Dispersão</a>
+            <p class="text-muted">Este botão gera um PDF com análises de dispersão dos ativos.</p>
+            
+            <a href="/gerar_pdf2" class="btn btn-success btn-lg mb-3" role="button">Gerar PDF 2 - Análise de Z-Score</a>
+            <p class="text-muted">Este botão gera um PDF com análises de Z-Score das carteiras.</p>
+            
+            <a href="/gerar_pdf3" class="btn btn-warning btn-lg" role="button">Gerar PDF 3 - Análise de Pares Simples</a>
+            <p class="text-muted">Este botão gera um PDF com análises de pares simples de ativos.</p>
+        </div>
+    </div>
+</body>
+</html>
