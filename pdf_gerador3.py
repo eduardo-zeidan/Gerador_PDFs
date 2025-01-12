@@ -3,6 +3,7 @@
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 import logging
 from datetime import datetime
@@ -67,53 +68,92 @@ def gerar_pdf_variacao_diaria(output_file="Variação_Diária.pdf"):
             # Verificar se há pelo menos duas linhas de dados
             if dados.shape[0] < 2:
                 logging.warning(f"Não há dados suficientes para os tickers: {tickers}")
-                return pd.Series(dtype=float)
+                return pd.Series(dtype=float), None
             
             # Calcular variação
             variacao = (dados.iloc[-1] - dados.iloc[-2]) / dados.iloc[-2] * 100
             variacao = variacao.dropna()
-
+    
             # Logar os tickers com dados válidos e os que foram ignorados
             logging.info(f"Tickers com dados válidos: {list(variacao.index)}")
             tickers_ignorados = set(tickers) - set(variacao.index)
             if tickers_ignorados:
                 logging.warning(f"Tickers sem dados ou ignorados: {tickers_ignorados}")
-
-            return variacao
+    
+            # Obter a data da última variação
+            data_var = dados.index[-1].strftime('%d/%m/%Y')
+    
+            return variacao, data_var
         except Exception as e:
             logging.error(f"Erro ao baixar dados para os tickers {tickers}: {e}")
-            return pd.Series(dtype=float)
+            return pd.Series(dtype=float), None
 
-    def plotar_variacao(variacao, titulo, ax):
-        ativos = variacao.index
-        valores = variacao.values
-
+    def plotar_variacao(variacao, titulo, ax, categoria):
+        sns.set(style="whitegrid")
+        sns.set_palette("muted")
+        
         if variacao.empty:
             ax.text(0.5, 0.5, 'Nenhum dado disponível.', 
                     horizontalalignment='center', verticalalignment='center', 
-                    fontsize=12, color='red')
+                    fontsize=14, color='red')
             ax.axis('off')
-        else:
-            descricao = [ativos_descricao.get(ticker, ticker) for ticker in ativos]
-            ax.bar(descricao, valores, color=['green' if v > 0 else 'red' for v in valores])
-            ax.axhline(0, color='black', linestyle='--', linewidth=0.8)
-        
-        ax.set_title(titulo, fontsize=14)
-        ax.set_ylabel('Variação (%)', fontsize=12)
-        ax.tick_params(axis='x', rotation=45, labelsize=10)
+            return
 
-    # Calcular variação
-    variacao_moedas = calcular_variacao(moedas, periodo='5d')
-    variacao_bolsas = calcular_variacao(bolsas, periodo='5d')
-    variacao_commodities = calcular_variacao(commodities, periodo='5d')
+        descricao = [ativos_descricao.get(ticker, ticker) for ticker in variacao.index]
+        valores = variacao.values
+
+        # Definir cores baseadas no sinal da variação
+        colors = ['#28a745' if v > 0 else '#dc3545' for v in valores]  # Verde para positivo, Vermelho para negativo
+
+        bars = ax.bar(descricao, valores, color=colors)
+
+        # Adicionar rótulos de valor nas barras
+        for bar in bars:
+            height = bar.get_height()
+            ax.annotate(f'{height:.2f}%',
+                        xy=(bar.get_x() + bar.get_width() / 2, height),
+                        xytext=(0, 3),  # 3 pontos de deslocamento para cima
+                        textcoords="offset points",
+                        ha='center', va='bottom', fontsize=10, color='black', fontweight='bold')
+
+        ax.axhline(0, color='black', linewidth=0.8)
+        ax.set_title(titulo, fontsize=16, fontweight='bold', color='#333333')
+        ax.set_ylabel('Variação (%)', fontsize=14, color='#333333')
+        ax.tick_params(axis='x', rotation=45, labelsize=12)
+        ax.tick_params(axis='y', labelsize=12)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+    # Calcular variação para cada categoria
+    variacao_moedas, data_var_moedas = calcular_variacao(moedas, periodo='5d')
+    variacao_bolsas, data_var_bolsas = calcular_variacao(bolsas, periodo='5d')
+    variacao_commodities, data_var_commodities = calcular_variacao(commodities, periodo='5d')
+
+    # Determinar a data mais recente entre as categorias
+    datas = [data for data in [data_var_moedas, data_var_bolsas, data_var_commodities] if data]
+    data_geracao = max(datas) if datas else datetime.now().strftime('%d/%m/%Y')
 
     # Gerar gráficos e salvar no PDF
     with PdfPages(output_file) as pdf:
-        fig, axs = plt.subplots(3, 1, figsize=(12, 18))
+        # Configuração geral do estilo
+        sns.set(style="whitegrid")
+        plt.rcParams.update({
+            'font.size': 12,
+            'font.family': 'sans-serif',
+            'axes.titlesize': 16,
+            'axes.labelsize': 14,
+            'xtick.labelsize': 12,
+            'ytick.labelsize': 12,
+            'figure.figsize': (12, 8),
+            'figure.facecolor': '#ffffff',
+            'axes.facecolor': '#f9f9f9'
+        })
 
-        plotar_variacao(variacao_moedas, 'Variação Diária - Moedas', axs[0])
-        plotar_variacao(variacao_bolsas, 'Variação Diária - Bolsas', axs[1])
-        plotar_variacao(variacao_commodities, 'Variação Diária - Commodities', axs[2])
+        fig, axs = plt.subplots(3, 1, figsize=(14, 20))
+
+        plotar_variacao(variacao_moedas, f'Variação Diária - Moedas ({data_geracao})', axs[0], 'Moedas')
+        plotar_variacao(variacao_bolsas, f'Variação Diária - Bolsas ({data_geracao})', axs[1], 'Bolsas')
+        plotar_variacao(variacao_commodities, f'Variação Diária - Commodities ({data_geracao})', axs[2], 'Commodities')
 
         plt.tight_layout()
         pdf.savefig(fig)
