@@ -123,7 +123,3 @@ def gerar_pdf_variacao_diaria(output_file="Variação_Diária.pdf"):
 
 if __name__ == "__main__":
     gerar_pdf_variacao_diaria()
-
-
-    # Executar a função principal e retornar o caminho do PDF
-    return main()
