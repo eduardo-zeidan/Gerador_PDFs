@@ -261,7 +261,7 @@ def gerar_pdf(output_file="Regressão_Pares_Ativos.pdf"):
 
         # Definir intervalo de datas para regressão
         end_date = datetime.today() - pd.DateOffset(days=1)  # Define end_date para ontem
-        start_date = end_date - pd.DateOffset(years=2)
+        start_date = end_date - pd.DateOffset(years=1)
 
         logging.info(f"Intervalo de datas: {start_date.strftime('%Y-%m-%d')} até {end_date.strftime('%Y-%m-%d')}\n")
 
